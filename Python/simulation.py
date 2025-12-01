@@ -2,6 +2,10 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import time
+import matplotlib
+matplotlib.use('Agg') # Non-interactive backend to prevent crashes
+import matplotlib.pyplot as plt
+import subprocess
 from dm_motor_4340 import DMMotor4340 
 # Path to the XML file
 xml_path = "./4DOF_Arm.xml"
@@ -14,9 +18,9 @@ def main():
     # Initialize motor
     motors = [DMMotor4340() for _ in range(4)]
     dict = {"motor1": motors[0], "motor2": motors[1], "motor3": motors[2], "motor4": motors[3]}
-    kd_dict = [0.25, 0.1, 0.1, 0]
+    kd_dict = [0.5, 0.5, 0.5, 0.1]
     # Simulation parameters
-    noise_std = 0.5  # Standard deviation of the torque noise (Nm)
+    noise_std = 0.1  # Standard deviation of the torque noise (Nm)
     
     # Prime the motors with initial state to prevent "limp" start
     # 1. Compute initial gravity compensation
@@ -43,56 +47,95 @@ def main():
         print("Use Ctrl + Left Click and Drag to apply force (drag the arm).")
         print("Use Ctrl + Right Click and Drag to apply torque.")
         
+        # Data recording buffers
+        time_data = []
+        motor_torque_data = []
+        applied_torque_data = []
+
         start_time = time.time()
-        while viewer.is_running():
-            step_start = time.time()
+        try:
+            while viewer.is_running():
+                step_start = time.time()
 
-            # 1. Compute Gravity Compensation Torques
-            # We want to hold the current position against gravity, but allow external forces (like mouse drag)
-            # to move the robot. So we must NOT compensate for xfrc_applied.
-            
-            # Lock the viewer while accessing/modifying data that is shared
-            with viewer.lock():
-                # Save current state
-                qpos_current = data.qpos.copy()
-                qvel_current = data.qvel.copy()
-                # Save external forces (e.g. from mouse) so we can restore them
-                # Multiply by 5 to make mouse interaction stronger as requested
-                xfrc_applied_current = data.xfrc_applied.copy() * 5.0
-                qfrc_applied_current = data.qfrc_applied.copy() * 5.0
-                # Update motor objects
-                for key, motor in enumerate(motors):
-                    motor.update(qpos_current[key], qvel_current[key])  
-                # Zero out velocities, accelerations, AND external forces for gravity comp calculation
-                data.qvel[:] = 0.0
-                data.qacc[:] = 0.0
-                data.xfrc_applied[:] = 0.0
-                data.qfrc_applied[:] = 0.0
-                # Compute inverse dynamics (results in data.qfrc_inverse)
-                # This calculates torque needed to hold qpos static against ONLY gravity/coriolis (which is 0).
-                mujoco.mj_inverse(model, data)
-                target_torques = data.qfrc_inverse.copy()
-                # Apply torques to motors
-                for key, motor in enumerate(motors):
-                    motor.mitcontrol(0, kd_dict[key], qpos_current[key], 0.0, target_torques[key])
-                # Restore actual simulation state
-                data.qvel[:] = qvel_current
-                data.xfrc_applied[:] = xfrc_applied_current
-                data.qfrc_applied[:] = qfrc_applied_current 
-                # Apply torques to motors
-                for key, motor in enumerate(motors):
-                    data.qfrc_applied[key] = motor.output_torque()
-                print(data.qfrc_applied)
-                # 2. Step Simulation
-                mujoco.mj_step(model, data)
+                # 1. Compute Gravity Compensation Torques
+                # We want to hold the current position against gravity, but allow external forces (like mouse drag)
+                # to move the robot. So we must NOT compensate for xfrc_applied.
+                
+                # Lock the viewer while accessing/modifying data that is shared
+                with viewer.lock():
+                    # Save current state
+                    qpos_current = data.qpos.copy()
+                    qvel_current = data.qvel.copy()
+                    qacc_current = data.qacc.copy()
+                    # Save external forces (e.g. from mouse) so we can restore them
+                    # Multiply by 5 to make mouse interaction stronger as requested 
+                    xfrc_applied_current = data.xfrc_applied.copy() * 5.0 
+                    qfrc_applied_current = data.qfrc_applied.copy() * 5.0
+                    # Update motor objects
+                    for key, motor in enumerate(motors):
+                        motor.update(qpos_current[key], qvel_current[key])  
+                    # Zero out velocities, accelerations, AND external forces for gravity comp calculation
+                    data.qvel[:] = 0.0
+                    data.qacc[:] = 0.0
+                    data.xfrc_applied[:] = 0.0
+                    data.qfrc_applied[:] = 0.0
+                    # Compute inverse dynamics (results in data.qfrc_inverse)
+                    # This calculates torque needed to hold qpos static against ONLY gravity/coriolis (which is 0).
+                    mujoco.mj_inverse(model, data)
+                    target_torques = data.qfrc_inverse.copy()
+                    # Apply torques to motors
+                    for key, motor in enumerate(motors):
+                        motor.mitcontrol(10, kd_dict[key], 0, 0.0, target_torques[key])
+                    # Restore actual simulation state
+                    data.qvel[:] = qvel_current
+                    data.qacc[:] = qacc_current
+                    data.xfrc_applied[:] = xfrc_applied_current
+                    data.qfrc_applied[:] = qfrc_applied_current 
+                    # Apply torques to motors
+                    for key, motor in enumerate(motors):
+                        data.ctrl[key] = motor.output_torque() #this is in addition to data.xfrc_applied
+                    
+                    # Record data for Joint 2 (index 1)
+                    current_time = time.time() - start_time
+                    time_data.append(current_time)
+                    motor_torque_data.append(data.ctrl[1])
+                    applied_torque_data.append(data.qfrc_applied[1])
 
-            # 3. Sync Viewer
-            viewer.sync()
+                    # print(data.ctrl)
+                    # 2. Step Simulation
+                    mujoco.mj_step(model, data)
+                # 3. Sync Viewer
+                viewer.sync()
 
-            # Time keeping
-            time_until_next_step = model.opt.timestep - (time.time() - step_start)
-            if time_until_next_step > 0:
-                time.sleep(time_until_next_step)
+                # Time keeping
+                time_until_next_step = model.opt.timestep - (time.time() - step_start)
+                if time_until_next_step > 0:
+                    time.sleep(time_until_next_step)
+        except KeyboardInterrupt:
+            print("\nSimulation stopped by user.")
 
+    # Plotting after simulation ends
+    print(f"Simulation finished. Recorded {len(time_data)} data points.")
+    print("Generating plot...")
+    
+    try:
+        plt.figure(figsize=(10, 6))
+        plt.plot(time_data, motor_torque_data, label='Motor Torque (Joint 2)', alpha=0.7)
+        plt.plot(time_data, applied_torque_data, label='Applied Torque (Joint 2)', alpha=0.7)
+        plt.xlabel('Time (s)')
+        plt.ylabel('Torque (Nm)')
+        plt.title('Joint 2 Torque Analysis')
+        plt.legend()
+        plt.grid(True)
+        
+        # Save to file
+        plt.savefig('torque_plot.png')
+        print("Plot saved to 'torque_plot.png'")
+        
+        print("Opening plot...")
+        subprocess.run(['open', 'torque_plot.png'])
+        print("Done.")
+    except Exception as e:
+        print(f"Error during plotting: {e}")
 if __name__ == "__main__":
     main()

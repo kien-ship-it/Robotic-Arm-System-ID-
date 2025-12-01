@@ -8,7 +8,7 @@ class DMMotor4340:
         self.vel = [0,0,0]
         self.pointer = 2
         self.sensor_pointer = 2
-        self.noise_std = 0.3  # Standard deviation of the torque noise (Nm)
+        self.noise_std = 0  # Standard deviation of the torque noise (Nm) turned off because it ruins the simulation
     def update(self, pos, vel):
         self.pos[self.sensor_pointer] = pos
         self.vel[self.sensor_pointer] = vel
@@ -27,7 +27,7 @@ class DMMotor4340:
         tau = current_frame[4]
         expected_torque = kp * (q - current_pos) + kd * (dq - current_vel) + tau
         noise = np.random.normal(0, self.noise_std, 1)
-        return expected_torque + noise[0] - self.viscious_friction * current_vel
+        return expected_torque - self.viscious_friction * current_vel # + noise[0]
     
 
         
