@@ -8,7 +8,7 @@ class DMMotor4340:
         self.vel = [0,0,0]
         self.pointer = 2
         self.sensor_pointer = 2
-        self.noise_std = 0.1  # Standard deviation of the torque noise (Nm) turned off because it ruins the simulation
+        self.noise_std = 0.1  # Standard deviation of the torque noise (Nm) turned off because it's not needed realistically
     def update(self, pos, vel):
         self.pos[self.sensor_pointer] = pos
         self.vel[self.sensor_pointer] = vel
