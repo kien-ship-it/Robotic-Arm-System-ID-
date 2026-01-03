@@ -1,0 +1,126 @@
+<mujoco model="4DOF_RoboticArm_CAD_Updated">
+    <compiler angle="radian" coordinate="local" meshdir="./"/>
+    
+    <option timestep="0.001" gravity="0 0 -9.81"/>
+    
+    <default>
+        <joint damping="0.1"/>
+        <geom type="cylinder" rgba="0.7 0.7 0.75 1"/>
+    </default>
+    
+    <asset>
+        <material name="robot_metal" rgba="0.7 0.7 0.75 1" specular="0.8" shininess="0.9"/>
+        <material name="joint_dark" rgba="0.3 0.3 0.3 1" specular="0.9" shininess="0.9"/>
+        <texture name="grid" type="2d" builtin="checker" width="512" height="512" 
+                 rgb1="0.2 0.2 0.2" rgb2="0.3 0.3 0.3"/>
+        <material name="grid" texture="grid" texrepeat="8 8" reflectance="0.1"/>
+        
+        <!-- Mesh definitions -->
+        <mesh name="link2_visual" file="Link2.stl" scale="0.001 0.001 0.001"/>
+        <mesh name="link3_visual" file="Link3.stl" scale="0.001 0.001 0.001"/>
+        <mesh name="link4_visual" file="Link4.stl" scale="0.001 0.001 0.001"/>
+        <mesh name="link5_visual" file="Link5.stl" scale="0.001 0.001 0.001"/>
+    </asset>
+    
+    <worldbody>
+        <geom name="ground" type="plane" size="2 2 0.01" material="grid" pos="0 0 0"/>
+        <light directional="true" pos="0 0 3" dir="0 0 -1" diffuse="0.8 0.8 0.8"/>
+        <light directional="true" pos="1 1 2" dir="-0.5 -0.5 -1" diffuse="0.4 0.4 0.4"/>
+        
+        <!-- Link 2 - Joint1_CS -->
+        <body name="link2" pos="0 0 0.08705">
+            <joint name="joint_1" type="hinge" pos="0 0 0" axis="0 0 1" 
+                  />
+            
+            <!-- Visual mesh (no collision) -->
+            <geom type="mesh" mesh="link2_visual" 
+                  contype="0" conaffinity="0" material="robot_metal"/>
+            
+            <!-- Collision cylinder (invisible) -->
+            <geom type="cylinder" size="0.03 0.02362" 
+                  pos="0.00117 0 0.04602" 
+                  contype="1" conaffinity="1" rgba="0 0 0 0"/>
+            
+            <!-- Inertial - Joint1_CS -->
+            <inertial pos="0.00117 0 0.04602" mass="0.41629"
+                      fullinertia="1.96459e-4 2.21717e-4 2.14067e-4 -3.1e-10 4.28779e-6 -4.3e-10"/>
+            
+            <!-- Link 3 - Joint2_CS -->
+            <body name="link3" pos="0.02875 0 0.04725">
+                <joint name="joint_2" type="hinge" pos="0 0 0" axis="1 0 0"
+                       />
+                
+                <geom type="mesh" mesh="link3_visual" 
+                      contype="0" conaffinity="0" material="robot_metal"/>
+                
+                <geom type="cylinder" size="0.028 0.056375" 
+                      pos="-0.02576 0 0.08185" 
+                      contype="1" conaffinity="1" rgba="0 0 0 0"/>
+                
+                <!-- Inertial - Joint2_CS -->
+                <inertial pos="-0.02576 0 0.08185" mass="0.43184"
+                          fullinertia="2.94318e-4 3.28155e-4 2.25828e-4 9.0e-10 -5.29790e-5 3.1e-10"/>
+                
+                <!-- Link 4 - Joint3_CS -->
+                <body name="link4" pos="-0.02875 0 0.11275">
+                    <joint name="joint_3" type="hinge" pos="0 0 0" axis="0 0 1"
+                           />
+                    
+                    <geom type="mesh" mesh="link4_visual" 
+                          contype="0" conaffinity="0" material="joint_dark"/>
+                    
+                    <geom type="cylinder" size="0.025 0.0236125" 
+                          pos="-0.00220 0 0.04598" 
+                          contype="1" conaffinity="1" rgba="0 0 0 0"/>
+                    
+                    <!-- Inertial - Joint3_CS -->
+                    <inertial pos="-0.00220 0 0.04598" mass="0.40330"
+                              fullinertia="1.92038e-4 2.06312e-4 1.98682e-4 -2.4e-10 -4.81560e-6 4.3e-10"/>
+                    
+                    <!-- Link 5 - Joint4_CS -->
+                    <body name="link5" pos="-0.02805 0 0.04725">
+                        <joint name="joint_4" type="hinge" pos="0 0 0" axis="1 0 0"
+                               />
+                        
+                        <geom type="mesh" mesh="link5_visual" 
+                              contype="0" conaffinity="0" material="robot_metal"/>
+                        
+                        <geom type="cylinder" size="0.022 0.056" 
+                              pos="0.02442 0 0.08532" 
+                              contype="1" conaffinity="1" rgba="0 0 0 0"/>
+                        
+                        <!-- Inertial - Joint4_CS -->
+                        <inertial pos="0.02442 0 0.08532" mass="0.35714"
+                                  fullinertia="2.44985e-4 2.78152e-4 1.95643e-4 9.0e-10 5.80776e-5 -3.0e-10"/>
+                        
+                        <!-- End Effector Site on Link 5 -->
+                        <site name="end_effector" pos="0.02805 0 0.112" 
+                              size="0.01" rgba="1 0 0 1"/>
+                    </body>
+                </body>
+            </body>
+        </body>
+    </worldbody>
+    
+    <actuator>
+        <motor name="joint_1_motor" joint="joint_1"/>
+        <motor name="joint_2_motor" joint="joint_2"/>
+        <motor name="joint_3_motor" joint="joint_3"/>
+        <motor name="joint_4_motor" joint="joint_4"/>
+    </actuator>
+    
+    <sensor>
+        <jointpos name="joint_1_pos" joint="joint_1"/>
+        <jointpos name="joint_2_pos" joint="joint_2"/>
+        <jointpos name="joint_3_pos" joint="joint_3"/>
+        <jointpos name="joint_4_pos" joint="joint_4"/>
+        
+        <jointvel name="joint_1_vel" joint="joint_1"/>
+        <jointvel name="joint_2_vel" joint="joint_2"/>
+        <jointvel name="joint_3_vel" joint="joint_3"/>
+        <jointvel name="joint_4_vel" joint="joint_4"/>
+        
+        <framepos name="ee_pos" objtype="site" objname="end_effector"/>
+    </sensor>
+    
+</mujoco>
