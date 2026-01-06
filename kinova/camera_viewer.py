@@ -25,7 +25,7 @@ main_width, main_height = 800, 600
 main_renderer = mujoco.Renderer(model, height=main_height, width=main_width)
 
 # Set initial joint positions
-data.qpos[:] = [0, 0, 0, 0, 0, 0, 0]
+data.qpos[:] = [0.03, 0.824, -0.487, -0.928, 0.673, -2.116, 0.534]
 mujoco.mj_forward(model, data)
 
 # Camera for main view
