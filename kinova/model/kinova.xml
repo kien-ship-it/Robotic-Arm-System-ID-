@@ -1,6 +1,10 @@
 <mujoco model="Kinova_description">
   <compiler angle="radian" meshdir="meshes"/>
 
+  <visual>
+    <global offwidth="1280" offheight="960"/>
+  </visual>
+
   <option timestep="0.001" gravity="0 0 -9.81">
       <flag contact="enable" energy="enable" gravity="enable"/>
   </option>
