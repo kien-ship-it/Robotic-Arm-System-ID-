@@ -1,6 +1,7 @@
 """
 Simple MuJoCo viewer for inspecting joint positions with gravity compensation.
 Uses mjpython's built-in interactive viewer - drag the arm to see joint values.
+Now uses Motor class with 2ms delay for torque commands.
 
 Run with mjpython:
     mjpython joint_viewer.py
@@ -9,11 +10,17 @@ import mujoco
 import mujoco.viewer
 import numpy as np
 import os
+from motor import Motor
 
 # Load model
 model_path = os.path.join(os.path.dirname(__file__), "model", "kinova.xml")
 model = mujoco.MjModel.from_xml_path(model_path)
 data = mujoco.MjData(model)
+
+# Create 7 motor objects (one for each joint)
+# Using direct torque command mode (not MIT controller)
+motors = [Motor(position_limit=2*np.pi, velocity_limit=10.0, torque_limit=50.0, 
+                use_mit_controller=False) for _ in range(7)]
 
 # Set initial joint positions (modify these to change starting pose)
 initial_qpos = [0, 0, 0, 0, 0, 0, 0]
@@ -21,10 +28,11 @@ data.qpos[:7] = initial_qpos
 mujoco.mj_forward(model, data)
 
 print("=" * 50)
-print("Kinova Joint Viewer (with gravity compensation)")
+print("Kinova Joint Viewer (with Motor class + 2ms delay)")
 print("=" * 50)
 print("Drag the arm in the viewer to move joints.")
 print("Joint positions are printed continuously.")
+print("Torque commands pass through Motor objects with 2ms delay.")
 print("Close the viewer window to quit.")
 print("=" * 50)
 
@@ -39,7 +47,7 @@ def print_joint_positions(data):
     ), end="", flush=True)
 
 def apply_gravity_compensation(model, data):
-    """Apply torques to counteract gravity, preserving external forces and velocities."""
+    """Compute gravity compensation torques and send through motor objects."""
     # Save state that we need to restore
     xfrc_applied_save = data.xfrc_applied.copy()
     qvel_save = data.qvel.copy()
@@ -57,8 +65,11 @@ def apply_gravity_compensation(model, data):
     data.xfrc_applied[:] = xfrc_applied_save
     data.qvel[:] = qvel_save
     
-    # Apply gravity compensation
-    data.ctrl[:7] = gravity_torques
+    # Send torque commands through motor objects
+    for i, motor in enumerate(motors):
+        motor.set_torque_command(gravity_torques[i])
+        motor.update(data.qpos[i], data.qvel[i])
+        data.ctrl[i] = motor.get_output_torque()
 
 # Launch interactive viewer
 with mujoco.viewer.launch_passive(model, data) as viewer:
