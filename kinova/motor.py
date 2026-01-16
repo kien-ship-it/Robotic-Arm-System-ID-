@@ -8,7 +8,8 @@ class Motor:
     Each method call represents 1ms time step.
     """
     
-    def __init__(self, position_limit=2*np.pi, velocity_limit=10.0, torque_limit=10.0, use_mit_controller=True):
+    def __init__(self, position_limit=2*np.pi, velocity_limit=10.0, torque_limit=10.0, use_mit_controller=True,
+                 T_coulomb=None, T_static=None, omega_s=None, delta=2):
         """
         Initialize motor with MIT controller parameters.
         
@@ -17,6 +18,10 @@ class Motor:
             velocity_limit: Maximum velocity (rad/s)
             torque_limit: Maximum torque (Nm)
             use_mit_controller: If True, use MIT controller. If False, use direct torque commands.
+            T_coulomb: Coulomb friction torque (Nm)
+            T_static: Static friction torque (Nm)
+            omega_s: Stribeck velocity (rad/s)
+            delta: Shape factor for Stribeck model
         """
         # Control mode
         self.use_mit_controller = use_mit_controller
@@ -53,6 +58,17 @@ class Motor:
         self.encoder_bits = 16
         self.encoder_resolution = 2**self.encoder_bits  # 65536 counts
         self.dt = 0.001  # 1ms time step
+        
+        # Stribeck friction model parameters
+        self.T_coulomb = T_coulomb  # Coulomb friction torque (Nm)
+        self.T_static = T_static  # Static friction torque (Nm)
+        self.omega_s = omega_s  # Stribeck velocity (rad/s)
+        self.delta = delta  # Shape factor
+        
+        # Random friction variation (sine wave modulation)
+        # Amplitude is ±20% of friction, phase is random
+        self.friction_sine_phase = np.random.uniform(0, 2 * np.pi)
+        self.friction_sine_amplitude = np.random.uniform(-0.2, 0.2)
         
     def set_mit_params(self, kp=None, kd=None, desired_pos=None, desired_vel=None, ff_torque=None):
         """
@@ -134,14 +150,41 @@ class Motor:
         # Output is the delayed torque (2ms ago)
         self.actual_torque = self.torque_buffer[0]
     
-    def get_output_torque(self):
+    def get_output_torque(self, Bv=0.0):
         """
-        Get the delayed torque output.
+        Get the delayed torque output with Stribeck friction model applied.
+        
+        Args:
+            Bv: Viscous friction coefficient (Nm·s/rad)
         
         Returns:
-            Torque output with 2ms delay (Nm)
+            Torque output with 2ms delay and friction (Nm)
         """
-        return self.actual_torque
+        # Motor velocity is the encoder velocity (time derivative of encoder position)
+        omega = self.get_encoder_velocity()
+        
+        # Apply Stribeck friction model if parameters are set
+        if all(param is not None for param in [self.T_coulomb, self.T_static, self.omega_s]):
+            # T_f = [T_c + (T_s - T_c) * e^(-(|omega/omega_s|)^delta)] * sgn(omega) + B_v * omega
+            stribeck_friction = (
+                (self.T_coulomb + (self.T_static - self.T_coulomb) * 
+                 np.exp(-np.abs(omega / self.omega_s) ** self.delta)) * 
+                np.sign(omega)
+            )
+            
+            # Add position-dependent sine wave variation
+            # Modulates friction by ±20% based on joint position
+            sine_modulation = self.friction_sine_amplitude * np.sin(self.true_position + self.friction_sine_phase)
+            friction_variation = stribeck_friction * sine_modulation
+            
+            friction_torque = stribeck_friction + friction_variation + Bv * omega
+            
+            # Apply friction to output torque
+            output_torque = self.actual_torque - friction_torque
+        else:
+            output_torque = self.actual_torque
+        
+        return output_torque
     
     def get_encoder_position(self):
         """

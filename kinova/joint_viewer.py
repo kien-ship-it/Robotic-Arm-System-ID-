@@ -19,8 +19,25 @@ data = mujoco.MjData(model)
 
 # Create 7 motor objects (one for each joint)
 # Using direct torque command mode (not MIT controller)
-motors = [Motor(position_limit=2*np.pi, velocity_limit=10.0, torque_limit=50.0, 
-                use_mit_controller=False) for _ in range(7)]
+# Stribeck friction parameters estimated for Kinova arm joints
+friction_params = [
+    # J1, J2 (base/shoulder) - larger joints
+    {"T_coulomb": 0.4, "T_static": 0.5, "omega_s": 0.05, "delta": 2},
+    {"T_coulomb": 0.4, "T_static": 0.5, "omega_s": 0.05, "delta": 2},
+    # J3, J4 (elbow) - mid joints
+    {"T_coulomb": 0.25, "T_static": 0.35, "omega_s": 0.05, "delta": 2},
+    {"T_coulomb": 0.25, "T_static": 0.35, "omega_s": 0.05, "delta": 2},
+    # J5, J6, J7 (wrist) - smaller joints
+    {"T_coulomb": 0.15, "T_static": 0.2, "omega_s": 0.05, "delta": 2},
+    {"T_coulomb": 0.15, "T_static": 0.2, "omega_s": 0.05, "delta": 2},
+    {"T_coulomb": 0.15, "T_static": 0.2, "omega_s": 0.05, "delta": 2},
+]
+
+motors = [
+    Motor(position_limit=2*np.pi, velocity_limit=10.0, torque_limit=50.0,
+          use_mit_controller=False, **params)
+    for params in friction_params
+]
 
 # Set initial joint positions (modify these to change starting pose)
 initial_qpos = [0, 0, 0, 0, 0, 0, 0]
