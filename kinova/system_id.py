@@ -15,47 +15,59 @@ model_path = os.path.join(os.path.dirname(__file__), "model", "kinova.xml")
 model = mujoco.MjModel.from_xml_path(model_path)
 data = mujoco.MjData(model)
 
-# Find joint body IDs (Kinova model uses link1-link7)
-joint_body_names = [f"link{i}" for i in range(1, 8)]
-body_ids = []
-for name in joint_body_names:
-    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
-    if body_id >= 0:
-        body_ids.append((name, body_id))
+# Find joint site IDs and corresponding body IDs (for rotation matrices)
+joint_site_names = [f"joint{i}" for i in range(1, 8)]
+joint_info = []
+for name in joint_site_names:
+    site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, name)
+    # Get the body that contains this site
+    body_id = model.site_bodyid[site_id] if site_id >= 0 else -1
+    if site_id >= 0:
+        joint_info.append((name, site_id, body_id))
 
-print(f"Tracking {len(body_ids)} bodies: {[name for name, _ in body_ids]}")
+print(f"Tracking {len(joint_info)} joints: {[name for name, _, _ in joint_info]}")
 
 def get_cartesian_velocities(model, data):
-    """Compute Cartesian velocity at each joint body using Jacobians."""
+    """Compute Cartesian velocity at each joint site in local body frame."""
     velocities = []
     
-    for name, body_id in body_ids:
+    for name, site_id, body_id in joint_info:
         # Allocate Jacobians
         jacp = np.zeros((3, model.nv))  # translational
         jacr = np.zeros((3, model.nv))  # rotational
         
-        # Compute Jacobian for this body
-        mujoco.mj_jacBody(model, data, jacp, jacr, body_id)
+        # Compute Jacobian for this site (at joint origin)
+        mujoco.mj_jacSite(model, data, jacp, jacr, site_id)
         
-        # Cartesian velocity = J @ qvel
-        linear_vel = jacp @ data.qvel
-        angular_vel = jacr @ data.qvel
+        # Cartesian velocity in world frame = J @ qvel
+        linear_vel_world = jacp @ data.qvel
+        angular_vel_world = jacr @ data.qvel
+        
+        # Get body rotation matrix (3x3) from data.xmat (stored as 9-element flat array)
+        R_body = data.xmat[body_id].reshape(3, 3)
+        
+        # Transform to local body frame: v_local = R^T @ v_world
+        linear_vel_local = R_body.T @ linear_vel_world
+        angular_vel_local = R_body.T @ angular_vel_world
         
         velocities.append({
             'name': name,
+            'site_id': site_id,
             'body_id': body_id,
-            'linear': linear_vel.copy(),
-            'angular': angular_vel.copy(),
-            'speed': np.linalg.norm(linear_vel)
+            'linear_world': linear_vel_world.copy(),
+            'linear_local': linear_vel_local.copy(),
+            'angular_world': angular_vel_world.copy(),
+            'angular_local': angular_vel_local.copy(),
+            'speed': np.linalg.norm(linear_vel_local)
         })
     
     return velocities
 
 def format_velocity_display(velocities):
     """Format velocities for display."""
-    lines = ["Cartesian Velocities (m/s):", ""]
+    lines = ["Cartesian Velocities in Local Frame (m/s):", ""]
     for v in velocities:
-        lv = v['linear']
+        lv = v['linear_local']
         lines.append(f"{v['name']:>8}: [{lv[0]:+6.3f}, {lv[1]:+6.3f}, {lv[2]:+6.3f}]  |v|={v['speed']:.3f}")
     return "\n".join(lines)
 
@@ -91,10 +103,11 @@ if __name__ == "__main__":
     
     # For numerical velocity estimation
     dt = 0.001  # 1ms timestep
+    slowdown = 5  # Slow down playback by 5x for visual verification
     
     import time
     last_print = 0
-    print_interval = 0.05  # Print every 50ms
+    print_interval = 0.1  # Print every 100ms
     
     with mujoco.viewer.launch_passive(model, data) as viewer:
         while viewer.is_running():
@@ -121,16 +134,19 @@ if __name__ == "__main__":
                 last_print = now
                 # Clear screen and print table
                 print("\033[2J\033[H")  # Clear screen, cursor to top
-                print("=" * 70)
-                print("  CARTESIAN VELOCITIES AT EACH JOINT (m/s)")
-                print("=" * 70)
-                print(f"{'Body':<10} {'vx':>10} {'vy':>10} {'vz':>10} {'|v|':>10}")
-                print("-" * 70)
+                print("=" * 80)
+                print("  CARTESIAN VELOCITIES IN LOCAL BODY FRAME (m/s)")
+                print("=" * 80)
+                print(f"{'Joint':<10} {'vx_local':>12} {'vy_local':>12} {'vz_local':>12} {'|v|':>10}")
+                print("-" * 80)
                 for v in velocities:
-                    lv = v['linear']
-                    print(f"{v['name']:<10} {lv[0]:>+10.4f} {lv[1]:>+10.4f} {lv[2]:>+10.4f} {v['speed']:>10.4f}")
-                print("-" * 70)
-                print(f"Frame: {frame_idx}/{num_frames}")
+                    lv = v['linear_local']
+                    print(f"{v['name']:<10} {lv[0]:>+12.4f} {lv[1]:>+12.4f} {lv[2]:>+12.4f} {v['speed']:>10.4f}")
+                print("-" * 80)
+                print(f"Frame: {frame_idx}/{num_frames} (slowdown: {slowdown}x)")
+            
+            # Slow down playback
+            time.sleep(dt * slowdown)
             
             viewer.sync()
     
