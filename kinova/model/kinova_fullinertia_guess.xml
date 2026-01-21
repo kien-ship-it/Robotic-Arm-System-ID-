@@ -12,7 +12,7 @@
   Reference: kinova_fullinertia.xml contains the ground truth values.
 -->
 <mujoco model="Kinova_description">
-  <compiler angle="radian" meshdir="meshes"/>
+  <compiler angle="radian" meshdir="meshes" balanceinertia="true"/>
 
   <visual>
     <global offwidth="1280" offheight="960"/>

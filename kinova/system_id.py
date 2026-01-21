@@ -57,8 +57,39 @@ def system_id():
         motor.set_mit_params(kp=kp, kd=kd)
         motors.append(motor)
     
-
-
+    # Generate demo trajectory
+    trajectory = generate_demo_trajectory(seconds=10.0)
+    
+    # Replay motion
+    frame_idx = 0
+    num_frames = trajectory.shape[0]
+    prev_qpos = trajectory[0, :].copy()
+    
+    dt = 0.001  # 1ms timestep
+    slowdown = 5  # Slow down playback for visualization
+    
+    import time
+    
+    with mujoco.viewer.launch_passive(model, data) as viewer:
+        while viewer.is_running():
+            # Update position from trajectory
+            if frame_idx < num_frames:
+                data.qpos[:7] = trajectory[frame_idx, :]
+                # Estimate velocity numerically
+                data.qvel[:7] = (trajectory[frame_idx, :] - prev_qpos) / dt
+                prev_qpos = trajectory[frame_idx, :].copy()
+                frame_idx += 1
+            else:
+                # Loop trajectory
+                frame_idx = 0
+                prev_qpos = trajectory[0, :].copy()
+            
+            mujoco.mj_forward(model, data)
+            
+            # Slow down playback
+            time.sleep(dt * slowdown)
+            
+            viewer.sync()
 # Load model
 model_path = os.path.join(os.path.dirname(__file__), "model", "kinova_fullinertia.xml")
 model = mujoco.MjModel.from_xml_path(model_path)
@@ -137,66 +168,4 @@ def generate_demo_trajectory(seconds: float, hz: int = 1000):
     return trajectory
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("Kinova Cartesian Velocity Viewer")
-    print("=" * 60)
-    print("Shows real-time Cartesian velocity at each joint body.")
-    print("Drag the arm or watch the trajectory playback.")
-    print("=" * 60)
-    
-    # Generate trajectory
-    trajectory = generate_demo_trajectory(seconds=10.0)
-    frame_idx = 0
-    num_frames = trajectory.shape[0]
-    prev_qpos = trajectory[0, :].copy()
-    
-    # For numerical velocity estimation
-    dt = 0.001  # 1ms timestep
-    slowdown = 5  # Slow down playback by 5x for visual verification
-    
-    import time
-    last_print = 0
-    print_interval = 0.1  # Print every 100ms
-    
-    with mujoco.viewer.launch_passive(model, data) as viewer:
-        while viewer.is_running():
-            # Update position from trajectory
-            if frame_idx < num_frames:
-                data.qpos[:7] = trajectory[frame_idx, :]
-                # Estimate velocity numerically
-                data.qvel[:7] = (trajectory[frame_idx, :] - prev_qpos) / dt
-                prev_qpos = trajectory[frame_idx, :].copy()
-                frame_idx += 1
-            else:
-                # Loop trajectory
-                frame_idx = 0
-                prev_qpos = trajectory[0, :].copy()
-            
-            mujoco.mj_forward(model, data)
-            
-            # Compute Cartesian velocities
-            velocities = get_cartesian_velocities(model, data)
-            
-            # Print formatted table at intervals
-            now = time.time()
-            if now - last_print > print_interval:
-                last_print = now
-                # Clear screen and print table
-                print("\033[2J\033[H")  # Clear screen, cursor to top
-                print("=" * 80)
-                print("  CARTESIAN VELOCITIES IN LOCAL BODY FRAME (m/s)")
-                print("=" * 80)
-                print(f"{'Joint':<10} {'vx_local':>12} {'vy_local':>12} {'vz_local':>12} {'|v|':>10}")
-                print("-" * 80)
-                for v in velocities:
-                    lv = v['linear_local']
-                    print(f"{v['name']:<10} {lv[0]:>+12.4f} {lv[1]:>+12.4f} {lv[2]:>+12.4f} {v['speed']:>10.4f}")
-                print("-" * 80)
-                print(f"Frame: {frame_idx}/{num_frames} (slowdown: {slowdown}x)")
-            
-            # Slow down playback
-            time.sleep(dt * slowdown)
-            
-            viewer.sync()
-    
-    print("\n\nDone!")
+    system_id()
