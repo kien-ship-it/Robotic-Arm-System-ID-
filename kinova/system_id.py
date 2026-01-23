@@ -16,7 +16,7 @@ def view_trajectory():
     Simply play the trajectory on the arm using mj_forward (no dynamics/control).
     Useful for visualizing the desired motion.
     """
-    model_path = os.path.join(os.path.dirname(__file__), "model", "kinova_fullinertia_guess.xml")
+    model_path = os.path.join(os.path.dirname(__file__), "model", "kinova_fullinertia.xml")
     model = mujoco.MjModel.from_xml_path(model_path)
     data = mujoco.MjData(model)
     
@@ -55,10 +55,13 @@ def system_id():
     """
     from motor import Motor
     
-    model_path = os.path.join(os.path.dirname(__file__), "model", "kinova_fullinertia_guess.xml")
+    model_path = os.path.join(os.path.dirname(__file__), "model", "kinova_fullinertia.xml")
     model = mujoco.MjModel.from_xml_path(model_path)
     data = mujoco.MjData(model)
     
+    model_path_guess = os.path.join(os.path.dirname(__file__), "model", "kinova_fullinertia_guess.xml")
+    model_guess = mujoco.MjModel.from_xml_path(model_path_guess)
+    data_guess = mujoco.MjData(model_guess)
     # Create 7 motor objects with MIT controller
     # PD gains estimated for Kinova arm:
     # - Joints 1-4 (shoulder/elbow): higher gains for larger joints
@@ -117,12 +120,19 @@ def system_id():
     dt = model.opt.timestep  # Use model timestep
     slowdown = 1  # Real-time playback
     
+    # Logging arrays for first pass through trajectory
+    # Cartesian velocities: 7 joints x 3 components (vx, vy, vz) in local frame
+    log_cartesian_vel = np.zeros((num_frames, 7, 3))
+    log_time = np.zeros(num_frames)
+    first_pass = True
+    
     import time
     
     with mujoco.viewer.launch_passive(model, data) as viewer:
         while viewer.is_running():
             if frame_idx >= num_frames:
                 # Loop trajectory
+                first_pass = False  # Done logging
                 frame_idx = 0
                 data.qpos[:7] = trajectory[0, :]
                 data.qvel[:7] = velocity[0, :]
@@ -135,19 +145,11 @@ def system_id():
             # Simple approach: gravity compensation at actual state only
             # The PD controller will handle trajectory tracking
             
-            actual_qpos = data.qpos[:7].copy()
-            actual_qvel = data.qvel[:7].copy()
-            
-            # Gravity comp: inverse dynamics with zero velocity and zero acceleration at actual position because velocity terms might cause the loop to diverge.
-            data.qvel[:7] = 0
-            data.qacc[:7] = 0
-            mujoco.mj_inverse(model, data)
-            feedforward_torques = data.qfrc_inverse[:7].copy()
-            
-            # Restore actual state
-            data.qpos[:7] = actual_qpos
-            data.qvel[:7] = actual_qvel
-            mujoco.mj_forward(model, data)
+            data_guess.qpos[:7] = data.qpos[:7].copy()
+            data_guess.qvel[:7] = 0  # Zero velocity for pure gravity compensation
+            data_guess.qacc[:7] = 0  # Zero acceleration
+            mujoco.mj_inverse(model_guess, data_guess)
+            feedforward_torques = data_guess.qfrc_inverse[:7].copy()
             
             # Step 2: For each motor, set feedforward torque and desired position from trajectory
             for i, motor in enumerate(motors):
@@ -169,6 +171,13 @@ def system_id():
             #Step 3: update motor states with current simulation state
             for i, motor in enumerate(motors):
                 motor.update(data.qpos[i], data.qvel[i])
+            
+            # Log Cartesian velocities on first pass
+            if first_pass and frame_idx < num_frames:
+                log_time[frame_idx] = frame_idx * dt
+                cart_vels = get_cartesian_velocities(model, data)
+                for i, v in enumerate(cart_vels):
+                    log_cartesian_vel[frame_idx, i, :] = v['linear_local']
         
             # Step 4: Compute motor output torques (includes PD feedback + feedforward)
             output_torques = np.zeros(7)
@@ -184,30 +193,71 @@ def system_id():
             # Slow down playback
             time.sleep(dt * slowdown)
             
-            # Print expected vs actual positions every 100 frames
+            # Print Cartesian velocities (overwrite same lines using ANSI escape codes)
             if frame_idx % 100 == 0:
-                print(f"\n--- Frame {frame_idx} ---")
-                # Print effective inertia at joint 0
-                M = np.zeros((model.nv, model.nv))
-                mujoco.mj_fullM(model, M, data.qM)
-                print(f"Joint 0 effective inertia: {M[0,0]:.4f} kg·m²")
-                print(f"{'Joint':<8} {'Expected':>10} {'Actual':>10} {'Error':>10} {'Torque':>10}")
-                for i in range(7):
-                    expected = trajectory[frame_idx, i]
-                    actual = data.qpos[i]
-                    error = expected - actual
-                    torque = output_torques[i]
-                    print(f"Joint {i}  {expected:>10.4f} {actual:>10.4f} {error:>10.4f} {torque:>10.4f}")
-                import sys
-                sys.stdout.flush()
+                cart_vels = get_cartesian_velocities(model, data)
+                # Build output as single string
+                lines = [f"Frame {frame_idx:5d}"]
+                lines.append(f"{'Joint':<8} {'vx':>10} {'vy':>10} {'vz':>10}")
+                for i, v in enumerate(cart_vels):
+                    lv = v['linear_local']
+                    lines.append(f"Joint {i+1:<3} {lv[0]:>+10.4f} {lv[1]:>+10.4f} {lv[2]:>+10.4f}")
+                # Clear screen and move cursor to top-left, then print
+                print("\033[H\033[J" + "\n".join(lines), flush=True)
             
             viewer.sync()
+    
+    # Save logged data to CSV
+    log_file = os.path.join(os.path.dirname(__file__), "cartesian_velocity_log.csv")
+    header = "time," + ",".join([f"joint{i+1}_vx,joint{i+1}_vy,joint{i+1}_vz" for i in range(7)])
+    log_data = np.zeros((num_frames, 1 + 7*3))
+    log_data[:, 0] = log_time
+    for i in range(7):
+        log_data[:, 1 + i*3] = log_cartesian_vel[:, i, 0]  # vx
+        log_data[:, 2 + i*3] = log_cartesian_vel[:, i, 1]  # vy
+        log_data[:, 3 + i*3] = log_cartesian_vel[:, i, 2]  # vz
+    np.savetxt(log_file, log_data, delimiter=",", header=header, comments="")
+    print(f"\nSaved Cartesian velocity log to {log_file}")
+    
+    # Plot Cartesian velocities (use Agg backend to avoid macOS threading issues with mjpython)
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    
+    fig, axes = plt.subplots(4, 2, figsize=(12, 10))
+    axes = axes.flatten()
+    
+    for i in range(7):
+        ax = axes[i]
+        ax.plot(log_time, log_cartesian_vel[:, i, 0], 'r-', label='vx', alpha=0.7)
+        ax.plot(log_time, log_cartesian_vel[:, i, 1], 'g-', label='vy', alpha=0.7)
+        ax.plot(log_time, log_cartesian_vel[:, i, 2], 'b-', label='vz', alpha=0.7)
+        ax.set_xlabel('Time (s)')
+        ax.set_ylabel('Velocity (m/s)')
+        ax.set_title(f'Joint {i+1} Cartesian Velocity (local frame)')
+        ax.legend(loc='upper right')
+        ax.grid(True, alpha=0.3)
+    
+    # Hide the 8th subplot
+    axes[7].set_visible(False)
+    
+    plt.tight_layout()
+    plot_file = os.path.join(os.path.dirname(__file__), "cartesian_velocity_plot.png")
+    plt.savefig(plot_file, dpi=150)
+    plt.close()  # Close without showing (avoids macOS threading issue with mjpython)
+    print(f"Saved Cartesian velocity plot to {plot_file}")
 
 def get_cartesian_velocities(model, data):
     """Compute Cartesian velocity at each joint site in local body frame."""
     velocities = []
     
-    for name, site_id, body_id in joint_info:
+    # Build joint_info from model - sites named joint1-joint7, bodies named link1-link7
+    for i in range(1, 8):
+        site_name = f"joint{i}"
+        body_name = f"link{i}"
+        site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, site_name)
+        body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+        
         # Allocate Jacobians
         jacp = np.zeros((3, model.nv))  # translational
         jacr = np.zeros((3, model.nv))  # rotational
@@ -227,7 +277,7 @@ def get_cartesian_velocities(model, data):
         angular_vel_local = R_body.T @ angular_vel_world
         
         velocities.append({
-            'name': name,
+            'name': site_name,
             'site_id': site_id,
             'body_id': body_id,
             'linear_world': linear_vel_world.copy(),
@@ -280,8 +330,8 @@ def generate_demo_trajectory(seconds: float, hz: int = 1000, test_joint: int = N
     for j in joints_to_move:
         omega = 2 * np.pi * freqs[j]
         # Use (1 - cos) so trajectory starts at position=0 with velocity=0
-        trajectory[:, j] = amps[j] * (np.cos(omega * t))
-        velocity[:, j] = amps[j] * omega * np.sin(omega * t)
+        trajectory[:, j] = amps[j] * np.cos(omega * t)
+        velocity[:, j] = -amps[j] * omega * np.sin(omega * t)  # d/dt[cos(ωt)] = -ω*sin(ωt)
     
     return trajectory, velocity
 
