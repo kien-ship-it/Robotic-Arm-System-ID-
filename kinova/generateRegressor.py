@@ -1,6 +1,19 @@
 import sympy as sp
+import numpy as np
 
 def derive_regressor_from_spatial_eqn():
+    """
+    Derive the symbolic 6x10 regressor matrix for a single rigid body.
+    Returns a lambdified function that takes kinematic values and returns the regressor.
+    
+    The regressor Y satisfies: F_a = Y @ theta
+    where F_a is the 6D spatial wrench [torque; force] and theta is the 10 inertial parameters:
+    [m, hx, hy, hz, Ixx, Ixy, Ixz, Iyy, Iyz, Izz]
+    
+    Returns:
+        regressor_func: callable that takes (wx, wy, wz, vx, vy, vz, dwx, dwy, dwz, dvx, dvy, dvz)
+                        and returns a 6x10 numpy array
+    """
     # 1. Define Kinematic Variables (Knowns)
     # --------------------------------------
     # Angular velocity (w), Linear velocity (v)
@@ -60,9 +73,7 @@ def derive_regressor_from_spatial_eqn():
     G_a[3:6, 0:3] = h_skew.T 
     G_a[3:6, 3:6] = m * sp.eye(3)
 
-    # 6. The Equation from Your Image (Matrix Multiplication)
-    # -----------------------------------------------------
-    # F_a = G_a * dV_a - [ad_Va]^T * G_a * V_a
+    # F_a = G_a * dV_a - ad_T * (G_a * V_a)
     # Note: SymPy handles the matrix multiplication automatically here.
     F_a = G_a * dV_a - ad_T * (G_a * V_a)
 
@@ -71,8 +82,94 @@ def derive_regressor_from_spatial_eqn():
     # Since F_a is linear in theta, Jacobian returns the coefficient matrix Y.
     Y_regressor = F_a.jacobian(theta)
 
-    print("Done! Extracted Regressor Matrix Y (Shape: 6x10)")
-    sp.pprint(Y_regressor[:]) # Print first row as example
+    # Convert to callable function
+    # Order: wx, wy, wz, vx, vy, vz, dwx, dwy, dwz, dvx, dvy, dvz
+    kinematic_vars = (wx, wy, wz, vx, vy, vz, dwx, dwy, dwz, dvx, dvy, dvz)
+    regressor_func = sp.lambdify(kinematic_vars, Y_regressor, modules='numpy')
+
+    return regressor_func
+
+
+def get_joint_regressor_row(regressor_6x10, joint_axis):
+    """
+    Extract the row of the regressor corresponding to the joint torque.
+    
+    The full regressor gives [torque_xyz; force_xyz] = Y @ theta.
+    The joint torque is the projection of the angular part onto the joint axis:
+        tau_joint = joint_axis @ torque_xyz = joint_axis @ Y[0:3, :] @ theta
+    
+    NOTE: MuJoCo convention - positive ctrl produces rotation about the joint axis.
+    The regressor computes torque in the body frame. To match MuJoCo's ctrl,
+    we need: tau = axis @ Y_angular @ theta (no negation needed).
+    
+    Args:
+        regressor_6x10: The full 6x10 regressor matrix
+        joint_axis: 3-element array, the joint rotation axis in the body frame
+                    (e.g., [0, -1, 0] for rotation about -Y)
+    
+    Returns:
+        1x10 regressor row for the joint torque equation
+    """
+    joint_axis = np.array(joint_axis).flatten()
+    # Extract angular part (first 3 rows) and project onto joint axis
+    Y_angular = regressor_6x10[0:3, :]  # 3x10
+    Y_joint = joint_axis @ Y_angular     # 1x10
+    return Y_joint
+
+
+# Create the regressor function once at module load
+_regressor_func = None
+
+def get_regressor_func():
+    """Get the cached regressor function (creates it on first call)."""
+    global _regressor_func
+    if _regressor_func is None:
+        print("Generating symbolic regressor (one-time cost)...")
+        _regressor_func = derive_regressor_from_spatial_eqn()
+        print("Done!")
+    return _regressor_func
+
+
+def compute_joint_regressor_row(wx, wy, wz, vx, vy, vz, dwx, dwy, dwz, dvx, dvy, dvz, joint_axis):
+    """
+    Compute the 1x10 regressor row for a joint given kinematic data.
+    
+    Args:
+        wx, wy, wz: Angular velocity in body frame (rad/s)
+        vx, vy, vz: Linear velocity in body frame (m/s)
+        dwx, dwy, dwz: Angular acceleration in body frame (rad/s^2)
+        dvx, dvy, dvz: Linear acceleration in body frame (m/s^2)
+        joint_axis: 3-element array, joint rotation axis in body frame
+    
+    Returns:
+        1x10 numpy array - the regressor row for tau_joint = Y_row @ theta
+    """
+    regressor_func = get_regressor_func()
+    Y_full = regressor_func(wx, wy, wz, vx, vy, vz, dwx, dwy, dwz, dvx, dvy, dvz)
+    Y_row = get_joint_regressor_row(Y_full, joint_axis)
+    return Y_row
+
 
 if __name__ == "__main__":
-    derive_regressor_from_spatial_eqn()
+    # Test the regressor
+    print("Testing regressor generation...")
+    
+    # Get the function
+    regressor_func = get_regressor_func()
+    
+    # Test with some values
+    Y = regressor_func(
+        wx=0.1, wy=0.2, wz=0.3,
+        vx=0.0, vy=0.0, vz=0.0,
+        dwx=0.01, dwy=0.02, dwz=0.03,
+        dvx=0.0, dvy=0.0, dvz=9.81
+    )
+    print(f"Full regressor shape: {Y.shape}")
+    print(f"Full regressor:\n{Y}")
+    
+    # Test joint row extraction for joint6 (axis = [0, -1, 0])
+    joint6_axis = [0, -1, 0]
+    Y_row = get_joint_regressor_row(Y, joint6_axis)
+    print(f"\nJoint6 regressor row (axis={joint6_axis}):")
+    print(f"Shape: {Y_row.shape}")
+    print(f"Values: {Y_row}")
