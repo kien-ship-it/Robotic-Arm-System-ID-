@@ -127,6 +127,7 @@ dmypy.json
 
 # Original development files (keep private)
 kinova/
+Ragtime Arm/
 
 # macOS
 .DS_Store
