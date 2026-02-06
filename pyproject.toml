@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "robot-sysid"
+version = "0.1.0"
+description = "Generic robotic arm system identification tool — identifies inertial parameters and friction of a robot's terminal link from MuJoCo simulation data."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Yuze Cai"},
+]
+keywords = ["robotics", "system-identification", "mujoco", "dynamics", "parameter-estimation", "robot-arm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.urls]
+Homepage = "https://github.com/curryabalone/Robotic-Arm-System-ID"
+Repository = "https://github.com/curryabalone/Robotic-Arm-System-ID"
+Issues = "https://github.com/curryabalone/Robotic-Arm-System-ID/issues"
+
+dependencies = [
+    "numpy",
+    "mujoco",
+    "sympy",
+    "scipy",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "hypothesis",
+]
+
+[project.scripts]
+robot-sysid = "robot_sysid.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["robot_sysid*"]
