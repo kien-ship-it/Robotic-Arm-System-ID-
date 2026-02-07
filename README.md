@@ -337,7 +337,17 @@ where:
 
 and $[\mathbf{v}]_\times$ is defined similarly.
 
-The full $6 \times 10$ regressor matrix $\mathbf{Y}$ is obtained by computing the Jacobian $\frac{\partial \mathbf{F}_a}{\partial \theta}$, where each element $Y_{ij} = \frac{\partial F_{a,i}}{\partial \theta_j}$.
+The full $6 \times 10$ regressor matrix $\mathbf{Y}$ is obtained by computing the Jacobian:
+
+```math
+\frac{\partial \mathbf{F}_a}{\partial \theta}
+```
+
+where each element is:
+
+```math
+Y_{ij} = \frac{\partial F_{a,i}}{\partial \theta_j}
+```
 
 The complete regressor matrix with all 60 terms is:
 
@@ -372,7 +382,17 @@ And columns correspond to parameters:
 - Column 9: Inertia $I_{yz}$
 - Column 10: Inertia $I_{zz}$
 
-Each row corresponds to one component of the 6D wrench $\mathbf{F}_a = [n_x, n_y, n_z, f_x, f_y, f_z]^T$, and each column corresponds to one inertial parameter in $\theta = [m, h_x, h_y, h_z, I_{xx}, I_{xy}, I_{xz}, I_{yy}, I_{yz}, I_{zz}]^T$.
+Each row corresponds to one component of the 6D wrench:
+
+```math
+\mathbf{F}_a = [n_x, n_y, n_z, f_x, f_y, f_z]^T
+```
+
+and each column corresponds to one inertial parameter in:
+
+```math
+\theta = [m, h_x, h_y, h_z, I_{xx}, I_{xy}, I_{xz}, I_{yy}, I_{yz}, I_{zz}]^T
+```
 
 For a revolute joint with axis $\mathbf{a} = [a_x, a_y, a_z]^T$, the scalar joint torque is obtained by projecting the angular torque components onto the joint axis:
 
